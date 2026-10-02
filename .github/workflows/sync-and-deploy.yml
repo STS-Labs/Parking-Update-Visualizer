@@ -2,7 +2,8 @@ name: Sync Drive & deploy map
 
 on:
   schedule:
-    - cron: "*/15 * * * *"   # GitHub may delay scheduled runs by a few minutes
+    # off-peak minutes: GitHub delays or drops many runs scheduled at :00/:15/:30/:45
+    - cron: "4,19,34,49 * * * *"
   workflow_dispatch:
   push:
     branches: [main]

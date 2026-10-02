@@ -304,7 +304,18 @@ def process_session(src, date, session_entry, previous):
 
     prog_e = find(entries, "progress.json")
     progress = json.loads(src.read(prog_e)) if prog_e else {}
-    stamp = f"{cp['name']}|{progress.get('written_at')}|{len(entries)}"
+
+    # photos: map "<photos folder>/<file>.jpg" -> Drive file. Listed before the skip check because
+    # photos keep arriving after the rest of the checkpoint has been uploaded.
+    photos = {}
+    for e in entries:
+        if e["folder"] and e["name"].lower().endswith("_photos"):
+            for p in src.list(e["id"]):
+                if not p["folder"]:
+                    photos[f"{e['name']}/{p['name']}"] = p
+                    photos.setdefault(p["name"], p)
+
+    stamp = f"{cp['name']}|{progress.get('written_at')}|{len(entries)}|{len(photos)}"
     out_path = os.path.join(SESSIONS_DIR, sid + ".geojson")
     if previous and previous.get("stamp") == stamp and os.path.exists(out_path):
         log(f"  {sid}: unchanged ({cp['name']})")
@@ -315,15 +326,6 @@ def process_session(src, date, session_entry, previous):
     if not geo_e:
         raise RuntimeError(f"no .geojson in {cp['name']}")
     points = json.loads(src.read(geo_e))
-
-    # photos: map "<photos folder>/<file>.jpg" -> Drive file
-    photos = {}
-    for e in entries:
-        if e["folder"] and e["name"].lower().endswith("_photos"):
-            for p in src.list(e["id"]):
-                if not p["folder"]:
-                    photos[f"{e['name']}/{p['name']}"] = p
-                    photos.setdefault(p["name"], p)
 
     raw_e = find(entries, ".raw.jsonl")
     rows = raw_stats(src.read(raw_e)) if raw_e else []
@@ -370,6 +372,13 @@ def process_session(src, date, session_entry, previous):
     with open(out_path, "w") as fh:
         json.dump({"type": "FeatureCollection", "features": features}, fh, separators=(",", ":"))
 
+    missing = sum(1 for f in features
+                  if f["properties"].get("kind") == "sign" and f["properties"].get("image")
+                  and "photo_url" not in f["properties"])
+    if missing:
+        log(f"  {sid}: {missing} photo(s) not uploaded yet; will retry next run")
+        stamp += "|incomplete"  # never matches the next run's stamp, so the session is re-processed
+
     return {
         "id": sid,
         "date": date,
@@ -378,6 +387,7 @@ def process_session(src, date, session_entry, previous):
         "stamp": stamp,
         "file": f"data/sessions/{sid}.geojson",
         "points": sum(1 for f in features if f["properties"].get("kind") == "sign"),
+        "photos_missing": missing,
         "track_km": round(track_km, 2),
         "recorded_km": round(track_km + line_km(pending), 2),
         "bbox": bbox,

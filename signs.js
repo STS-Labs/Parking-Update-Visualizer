@@ -36,6 +36,12 @@ window.SIGN_NAMES = {
   "8.5.4": "Plate: time of operation"
 };
 
+// Codes counted as parking signs by the "Parking only" filter (base code, before any "_NN" suffix).
+window.PARKING_CODES = ["3.27", "3.28", "3.29", "3.30", "6.4"];
+
+window.baseCode = function (code) { return String(code).replace(/_\d+$/, ""); };
+window.isParkingCode = function (code) { return window.PARKING_CODES.includes(window.baseCode(code)); };
+
 window.signName = function (code) {
   const m = /^(.+?)_(\d+)$/.exec(code); // e.g. "3.24_40" -> speed limit 40
   const base = m ? m[1] : code;

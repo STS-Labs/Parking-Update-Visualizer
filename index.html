@@ -29,6 +29,17 @@
       </section>
 
       <section>
+        <h2>Sign types</h2>
+        <div class="seg" id="typemode" role="group" aria-label="Sign type filter">
+          <button type="button" data-mode="all" class="on">All signs</button>
+          <button type="button" data-mode="parking">Parking only</button>
+          <button type="button" data-mode="custom">Custom</button>
+        </div>
+        <div id="codes" class="codes"></div>
+        <div id="shown" class="muted"></div>
+      </section>
+
+      <section>
         <label class="row" for="minconf">Min confidence <b id="minconf-val">0.00</b></label>
         <input type="range" id="minconf" min="0" max="1" step="0.05" value="0">
         <div class="legend">

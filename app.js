@@ -25,6 +25,16 @@
   let lastIndexStamp = null;
   let fittedOnce = false;
   let minConf = 0;
+  // sign-type filter: "all" | "parking" | "custom" (custom uses selectedCodes)
+  let typeMode = "all";
+  const selectedCodes = new Set();
+  let knownCodes = new Set();
+
+  function codeVisible(code) {
+    if (typeMode === "all") return true;
+    if (typeMode === "parking") return window.isParkingCode(code);
+    return selectedCodes.has(code);
+  }
 
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -88,9 +98,15 @@
     const visible = [];
     for (const s of sessions.values()) {
       if (!s.visible) continue;
-      for (const m of s.markers) if ((m.options.conf ?? 1) >= minConf) visible.push(m);
+      for (const m of s.markers) {
+        if ((m.options.conf ?? 1) < minConf) continue;
+        if (!m.options.labels.some(codeVisible)) continue;
+        visible.push(m);
+      }
     }
     cluster.addLayers(visible);
+    const total = [...sessions.values()].reduce((n, s) => n + (s.visible ? s.markers.length : 0), 0);
+    $("shown").textContent = total ? `Showing ${visible.length} of ${total} signs` : "";
   }
 
   async function loadSession(meta, color) {
@@ -108,7 +124,7 @@
       } else if (f.geometry.type === "Point") {
         const [lon, lat] = f.geometry.coordinates;
         const m = L.circleMarker([lat, lon], {
-          radius: 7, weight: 2, color: "#fff", fillColor: confColor(p.conf), fillOpacity: 0.95, conf: p.conf
+          radius: 7, weight: 2, color: "#fff", fillColor: confColor(p.conf), fillOpacity: 0.95, conf: p.conf, labels: (p.labels && p.labels.length) ? p.labels : ["?"]
         });
         m.bindPopup(() => popupHtml(p, lat, lon, meta), { maxWidth: 320, autoPanPadding: [20, 20] });
         m.bindTooltip((p.labels || []).join(", ") + (p.conf != null ? ` (${(p.conf * 100).toFixed(0)}%)` : ""), { direction: "top", offset: [0, -6] });
@@ -116,6 +132,41 @@
       }
     }
     return { track: L.layerGroup(tracks), markers };
+  }
+
+  function renderCodes() {
+    const counts = new Map();
+    for (const s of sessions.values())
+      for (const m of s.markers) for (const l of m.options.labels) counts.set(l, (counts.get(l) || 0) + 1);
+    // codes seen for the first time start selected in custom mode
+    for (const c of counts.keys()) if (!knownCodes.has(c)) { knownCodes.add(c); selectedCodes.add(c); }
+    const codes = [...counts.keys()].sort((x, y) => x.localeCompare(y, undefined, { numeric: true }));
+    const box = $("codes");
+    box.innerHTML = "";
+    for (const c of codes) {
+      const name = window.signName(c);
+      const el = document.createElement("label");
+      el.innerHTML = `<input type="checkbox" ${codeVisible(c) ? "checked" : ""}>
+        <b>${esc(c)}</b><span>${esc(name)}</span>${window.isParkingCode(c) ? '<span class="p">P</span>' : ""}<span class="n">${counts.get(c)}</span>`;
+      el.querySelector("input").addEventListener("change", (e) => {
+        if (typeMode !== "custom") {  // editing a box switches to custom, starting from what is visible now
+          selectedCodes.clear();
+          for (const k of codes) if (codeVisible(k)) selectedCodes.add(k);
+          setMode("custom", false);
+        }
+        e.target.checked ? selectedCodes.add(c) : selectedCodes.delete(c);
+        applyFilter();
+      });
+      box.appendChild(el);
+    }
+  }
+
+  function setMode(mode, rerender = true) {
+    typeMode = mode;
+    for (const b of document.querySelectorAll("#typemode button")) b.classList.toggle("on", b.dataset.mode === mode);
+    if (rerender) renderCodes();
+    applyFilter();
+    try { localStorage.setItem("typeMode", mode); } catch (e) { /* ignore */ }
   }
 
   function renderPanel(index) {
@@ -206,6 +257,7 @@
       }
     }
     renderPanel(index);
+    renderCodes();
   }
 
   $("minconf").addEventListener("input", (e) => {
@@ -213,6 +265,12 @@
     $("minconf-val").textContent = minConf.toFixed(2);
     applyFilter();
   });
+  for (const b of document.querySelectorAll("#typemode button"))
+    b.addEventListener("click", () => setMode(b.dataset.mode));
+  try {
+    const saved = localStorage.getItem("typeMode");
+    if (saved === "parking") { typeMode = saved; document.querySelectorAll("#typemode button").forEach((b) => b.classList.toggle("on", b.dataset.mode === saved)); }
+  } catch (e) { /* ignore */ }
   $("toggle").addEventListener("click", () => $("panel").classList.toggle("collapsed"));
   if (window.innerWidth < 600) $("panel").classList.add("collapsed");
 

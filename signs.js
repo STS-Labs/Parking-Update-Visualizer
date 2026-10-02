@@ -32,12 +32,13 @@ window.SIGN_NAMES = {
   "5.19.1": "Pedestrian crossing",
   "5.19.2": "Pedestrian crossing",
   "6.4": "Parking",
+  "7.4": "Parking",
   "8.2.1": "Plate: zone length",
   "8.5.4": "Plate: time of operation"
 };
 
 // Codes counted as parking signs by the "Parking only" filter (base code, before any "_NN" suffix).
-window.PARKING_CODES = ["3.27", "3.28", "3.29", "3.30", "6.4"];
+window.PARKING_CODES = ["3.27", "3.28", "3.29", "3.30", "6.4", "7.4"];
 
 window.baseCode = function (code) { return String(code).replace(/_\d+$/, ""); };
 window.isParkingCode = function (code) { return window.PARKING_CODES.includes(window.baseCode(code)); };

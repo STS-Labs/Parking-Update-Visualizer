@@ -35,6 +35,8 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); }
 .row { display: flex; justify-content: space-between; font-size: 13px; }
 input[type=range] { width: 100%; }
 .legend { display: flex; gap: 12px; font-size: 12px; color: var(--muted); }
+.legend i.route { width: 14px; height: 4px; border-radius: 2px; background: #2563eb; vertical-align: 2px; }
+.legend { flex-wrap: wrap; }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
 
 .sess { padding: 8px 0; border-top: 1px solid var(--line); }

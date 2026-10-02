@@ -2,7 +2,7 @@
   "use strict";
 
   const REFRESH_MS = 2 * 60 * 1000;
-  const PALETTE = ["#2563eb", "#9333ea", "#0891b2", "#db2777", "#ea580c", "#4f46e5", "#0d9488", "#be123c"];
+  const ROUTE_COLOR = "#2563eb"; // one color for every session/checkpoint route
 
   const map = L.map("map", { zoomControl: false }).setView([41.7151, 44.8271], 12);
   L.control.zoom({ position: "topright" }).addTo(map);
@@ -178,7 +178,7 @@
         seen.add(meta.id);
         const old = sessions.get(meta.id);
         if (old && old.meta.stamp === meta.stamp) { old.meta = meta; continue; }
-        const color = old ? old.color : PALETTE[i % PALETTE.length];
+        const color = ROUTE_COLOR;
         try {
           const layers = await loadSession(meta, color);
           if (old) map.removeLayer(old.track);

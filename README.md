@@ -19,6 +19,18 @@ Photos are not copied: popups load them straight from Drive thumbnails.
 
 Click **Actions → Sync Drive & deploy map → Run workflow** to force an update immediately.
 
+### Trigger
+
+GitHub's own `schedule` trigger turned out to be unreliable (it never fired for this repo), so the detection laptop
+starts the workflow itself. A Windows Task Scheduler job named **ParkingMapSync** runs every 15 minutes:
+
+```
+wsl.exe -d Ubuntu -u zuka -e /home/zuka/.local/bin/gh workflow run sync-and-deploy.yml -R STS-Labs/Parking-Update-Visualizer
+```
+
+It needs the laptop on and `gh` logged in inside WSL. To remove it, run `schtasks /Delete /TN ParkingMapSync /F`.
+The cron schedule in the workflow stays as a backup.
+
 ## Local development
 
 ```bash

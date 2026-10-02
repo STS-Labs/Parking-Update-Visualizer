@@ -1,38 +1,38 @@
 {
- "updated_at": "2026-10-02T17:56:51+00:00",
+ "updated_at": "2026-10-02T18:41:10+00:00",
  "sessions": [
   {
    "id": "2026-09-30_session_2026-09-30_14-10-32",
    "date": "2026-09-30",
    "name": "session_2026-09-30_14-10-32",
-   "checkpoint": "checkpoint_003",
-   "stamp": "checkpoint_003|2026-10-02 21:54:03|27",
+   "checkpoint": "checkpoint_004",
+   "stamp": "checkpoint_004|2026-10-02 22:24:02|27",
    "file": "data/sessions/2026-09-30_session_2026-09-30_14-10-32.geojson",
-   "points": 59,
-   "track_km": 6.57,
+   "points": 62,
+   "track_km": 10.06,
    "recorded_km": 36.31,
    "bbox": [
-    44.9343706,
+    44.9158844,
     41.5661726,
     44.9767407,
-    41.6100861
+    41.6382049
    ],
    "progress": {
-    "frames_done": 17552,
+    "frames_done": 22345,
     "frames_expected": 208910,
-    "svo_frame": 17551,
+    "svo_frame": 22344,
     "svo_frames_total": 208910,
-    "video_time_reached": "09:45",
+    "video_time_reached": "12:24",
     "video_duration": "118:59",
-    "checkpoint": "checkpoint_003",
+    "checkpoint": "checkpoint_004",
     "final": false,
-    "runtime_min": 93.1,
-    "raw_detections": 2124,
-    "points": 59,
-    "photos": 59,
-    "written_at": "2026-10-02 21:54:03"
+    "runtime_min": 123.1,
+    "raw_detections": 2154,
+    "points": 62,
+    "photos": 62,
+    "written_at": "2026-10-02 22:24:02"
    },
-   "synced_at": "2026-10-02T17:56:51+00:00"
+   "synced_at": "2026-10-02T18:41:10+00:00"
   }
  ]
 }

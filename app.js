@@ -2,7 +2,8 @@
   "use strict";
 
   const REFRESH_MS = 2 * 60 * 1000;
-  const ROUTE_COLOR = "#2563eb"; // one color for every session/checkpoint route
+  const ROUTE_COLOR = "#2563eb";   // processed route: one color for every session/checkpoint
+  const PENDING_COLOR = "#8a91a0"; // recorded but not yet processed
 
   const map = L.map("map", { zoomControl: false }).setView([41.7151, 44.8271], 12);
   L.control.zoom({ position: "topright" }).addTo(map);
@@ -100,8 +101,10 @@
     const tracks = [];
     for (const f of fc.features) {
       const p = f.properties || {};
-      if (p.kind === "track") {
-        tracks.push(L.geoJSON(f, { style: { color, weight: 4, opacity: 0.8 }, interactive: false }));
+      if (p.kind === "track_pending") {
+        tracks.unshift(L.geoJSON(f, { style: { color: PENDING_COLOR, weight: 3, opacity: 0.7, dashArray: "4 6" }, interactive: false }));
+      } else if (p.kind === "track") {
+        tracks.push(L.geoJSON(f, { style: { color, weight: 4, opacity: 0.85 }, interactive: false }));
       } else if (f.geometry.type === "Point") {
         const [lon, lat] = f.geometry.coordinates;
         const m = L.circleMarker([lat, lon], {
@@ -118,7 +121,7 @@
   function renderPanel(index) {
     const list = index.sessions;
     $("t-points").textContent = list.reduce((a, s) => a + (s.points || 0), 0);
-    $("t-km").textContent = list.reduce((a, s) => a + (s.track_km || 0), 0).toFixed(1);
+    $("t-km").title = "processed so far"; $("t-km").textContent = list.reduce((a, s) => a + (s.track_km || 0), 0).toFixed(1);
     $("t-sessions").textContent = list.length;
     $("updated").textContent = "Data updated " + ago(index.updated_at);
     $("updated").title = index.updated_at || "";
@@ -142,7 +145,7 @@
         </div>
         <div class="bar ${pr.final ? "done" : ""}"><div style="width:${pct.toFixed(1)}%"></div></div>
         <div class="meta">
-          ${esc(meta.checkpoint)} · ${pct.toFixed(0)}% · ${meta.points} signs · ${meta.track_km} km<br>
+          ${esc(meta.checkpoint)} · ${pct.toFixed(0)}% · ${meta.points} signs · ${meta.track_km}${meta.recorded_km > meta.track_km ? ` / ${meta.recorded_km}` : ""} km<br>
           video ${esc(pr.video_time_reached || "–")} / ${esc(pr.video_duration || "–")} · frames ${pr.frames_done ?? "–"} / ${pr.frames_expected ?? "–"}<br>
           ${pr.raw_detections != null ? `${pr.raw_detections} raw detections · ` : ""}written ${esc(pr.written_at || "–")}
         </div>`;

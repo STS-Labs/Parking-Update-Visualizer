@@ -40,8 +40,9 @@ def log(*a):
 class DriveSource:
     """Read-only access to a public ("anyone with the link") Drive folder tree, no credentials."""
 
+    # one match per entry; folders link to /drive/folders/, files to /file/d/
     ENTRY_RE = re.compile(
-        r'id="entry-([^"]+)".*?aria-label="([^"]*)".*?flip-entry-title">([^<]*)<', re.S)
+        r'class="flip-entry" id="entry-([^"]+)"[^>]*>.*?href="([^"]*)".*?flip-entry-title">([^<]*)<', re.S)
 
     def _get(self, url, tries=4):
         for i in range(tries):
@@ -61,7 +62,7 @@ class DriveSource:
         out = []
         for m in self.ENTRY_RE.finditer(page):
             out.append({"id": m.group(1), "name": html.unescape(m.group(3)).strip(),
-                        "folder": m.group(2) == "Folder"})
+                        "folder": "/folders/" in m.group(2)})
         return out
 
     def read(self, entry):
@@ -178,24 +179,83 @@ def read_track(src, entries):
     return lines
 
 
-def track_from_points(src, entries):
-    """Fallback when there is no line shapefile: connect the GNSS track points."""
+def read_track_points(src, entries):
+    """GNSS track points shapefile -> list of (datetime | None, [lon, lat]) in recording order."""
     shp = find(entries, "_gnss_track_points.shp")
     if not shp:
         return []
     base = shp["name"][:-4]
     shx = next((e for e in entries if e["name"] == base + ".shx"), None)
+    dbf = next((e for e in entries if e["name"] == base + ".dbf"), None)
     prj = next((e for e in entries if e["name"] == base + ".prj"), None)
     reproject = make_reprojector(src.read(prj).decode("utf-8", "replace")) if prj else None
-    reader = shapefile.Reader(shp=io.BytesIO(src.read(shp)), shx=io.BytesIO(src.read(shx)) if shx else None)
-    seg = []
-    for shape in reader.shapes():
-        if shape.points:
-            x, y = shape.points[0]
-            if reproject:
-                x, y = reproject(x, y)
-            seg.append([round(x, 7), round(y, 7)])
-    return [seg] if len(seg) >= 2 else []
+    reader = shapefile.Reader(shp=io.BytesIO(src.read(shp)),
+                              shx=io.BytesIO(src.read(shx)) if shx else None,
+                              dbf=io.BytesIO(src.read(dbf)) if dbf else None)
+    names = [f[0] for f in reader.fields[1:]] if dbf else []
+    ti = names.index("time") if "time" in names else None
+    out = []
+    for sr in reader.iterShapeRecords() if dbf else ((sh, None) for sh in reader.shapes()):
+        shape, rec = (sr.shape, sr.record) if dbf else sr
+        if not shape.points:
+            continue
+        x, y = shape.points[0]
+        if reproject:
+            x, y = reproject(x, y)
+        t = None
+        if ti is not None:
+            try:
+                t = datetime.strptime(str(rec[ti])[:19], "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                pass
+        out.append((t, [round(x, 7), round(y, 7)]))
+    return out
+
+
+def thin(line, min_m=2.0):
+    """Drop points closer than min_m to the previously kept one (keeps the files small)."""
+    if len(line) < 3:
+        return line
+    out = [line[0]]
+    for c in line[1:-1]:
+        dx = math.radians(c[0] - out[-1][0]) * math.cos(math.radians(c[1])) * 6371000
+        dy = math.radians(c[1] - out[-1][1]) * 6371000
+        if math.hypot(dx, dy) >= min_m:
+            out.append(c)
+    out.append(line[-1])
+    return out
+
+
+def line_km(lines):
+    km = 0.0
+    for line in lines:
+        for (x1, y1), (x2, y2) in zip(line, line[1:]):
+            dx = math.radians(x2 - x1) * math.cos(math.radians((y1 + y2) / 2))
+            km += 6371.0 * math.hypot(dx, math.radians(y2 - y1))
+    return km
+
+
+def split_track(src, entries, progress):
+    """-> (processed_lines, pending_lines).
+
+    The GNSS track covers the whole recording, but detection only reaches svo_frame/svo_frames_total of it.
+    The track's time span equals the video duration, so cut it at the same fraction of time.
+    """
+    pts = read_track_points(src, entries)
+    timed = [p for p in pts if p[0] is not None]
+    total = progress.get("svo_frames_total") or 0
+    frac = 1.0 if progress.get("final") else (progress.get("svo_frame", 0) / total if total else None)
+    if len(timed) >= 2 and frac is not None:
+        t0, t1 = timed[0][0], timed[-1][0]
+        cutoff = t0 + (t1 - t0) * max(0.0, min(1.0, frac))
+        done = [c for t, c in timed if t <= cutoff]
+        rest = [c for t, c in timed if t >= cutoff]
+        if done and rest:
+            rest.insert(0, done[-1])  # connect the two parts
+        done, rest = thin(done), thin(rest)
+        return ([done] if len(done) >= 2 else []), ([rest] if len(rest) >= 2 else [])
+    lines = read_track(src, entries) or ([thin([c for _, c in pts])] if len(pts) >= 2 else [])
+    return lines, []
 
 
 def raw_stats(raw_bytes):
@@ -292,21 +352,19 @@ def process_session(src, date, session_entry, previous):
                          "geometry": {"type": "Point", "coordinates": [round(coords[0], 7), round(coords[1], 7)]},
                          "properties": p})
 
-    track = read_track(src, entries) or track_from_points(src, entries)
+    track, pending = split_track(src, entries, progress)
+    if pending:
+        features.append({"type": "Feature", "geometry": {"type": "MultiLineString", "coordinates": pending},
+                         "properties": {"kind": "track_pending", "session": sid}})
     if track:
         features.append({"type": "Feature", "geometry": {"type": "MultiLineString", "coordinates": track},
                          "properties": {"kind": "track", "session": sid}})
 
     allc = [f["geometry"]["coordinates"] for f in features if f["geometry"]["type"] == "Point"]
-    allc += [c for line in track for c in line]
+    allc += [c for line in (track or pending) for c in line]
     bbox = ([min(c[0] for c in allc), min(c[1] for c in allc), max(c[0] for c in allc), max(c[1] for c in allc)]
             if allc else None)
-    track_km = 0.0
-    for line in track:
-        for (x1, y1), (x2, y2) in zip(line, line[1:]):
-            dx = math.radians(x2 - x1) * math.cos(math.radians((y1 + y2) / 2))
-            dy = math.radians(y2 - y1)
-            track_km += 6371.0 * math.hypot(dx, dy)
+    track_km = line_km(track)
 
     os.makedirs(SESSIONS_DIR, exist_ok=True)
     with open(out_path, "w") as fh:
@@ -321,6 +379,7 @@ def process_session(src, date, session_entry, previous):
         "file": f"data/sessions/{sid}.geojson",
         "points": sum(1 for f in features if f["properties"].get("kind") == "sign"),
         "track_km": round(track_km, 2),
+        "recorded_km": round(track_km + line_km(pending), 2),
         "bbox": bbox,
         "progress": progress,
         "synced_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

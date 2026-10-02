@@ -1,15 +1,15 @@
 {
- "updated_at": "2026-10-02T21:03:06+00:00",
+ "updated_at": "2026-10-02T21:18:07+00:00",
  "sessions": [
   {
    "id": "2026-09-30_session_2026-09-30_14-10-32",
    "date": "2026-09-30",
    "name": "session_2026-09-30_14-10-32",
    "checkpoint": "checkpoint_009",
-   "stamp": "checkpoint_009|2026-10-03 00:58:51|27|148|incomplete",
+   "stamp": "checkpoint_009|2026-10-03 00:58:51|27|234",
    "file": "data/sessions/2026-09-30_session_2026-09-30_14-10-32.geojson",
    "points": 117,
-   "photos_missing": 43,
+   "photos_missing": 0,
    "track_km": 15.56,
    "recorded_km": 36.31,
    "bbox": [
@@ -33,7 +33,7 @@
     "photos": 117,
     "written_at": "2026-10-03 00:58:51"
    },
-   "synced_at": "2026-10-02T21:03:06+00:00"
+   "synced_at": "2026-10-02T21:18:07+00:00"
   }
  ]
 }

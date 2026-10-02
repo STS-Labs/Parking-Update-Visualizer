@@ -16,7 +16,7 @@
   L.control.layers({ "Streets": streets, "Satellite": satellite }, null, { position: "topright" }).addTo(map);
   L.control.scale({ position: "bottomright", imperial: false }).addTo(map);
 
-  const cluster = L.markerClusterGroup({ disableClusteringAtZoom: 17, maxClusterRadius: 40 });
+  const cluster = L.markerClusterGroup({ disableClusteringAtZoom: 16, maxClusterRadius: 30 });
   map.addLayer(cluster);
 
   // session id -> { meta, color, track: L.Layer, markers: [L.CircleMarker], visible }

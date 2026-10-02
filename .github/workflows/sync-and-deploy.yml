@@ -1,0 +1,67 @@
+name: Sync Drive & deploy map
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # GitHub may delay scheduled runs by a few minutes
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: sync-and-deploy
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Sync from Google Drive
+        run: python scripts/sync.py
+
+      - name: Commit data changes
+        run: |
+          git add -A data
+          if git diff --cached --quiet; then
+            echo "No data changes"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Update data from Drive"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
+
+      - name: Build site
+        run: |
+          mkdir -p _site
+          cp index.html app.js signs.js style.css _site/
+          cp -r data _site/
+          touch _site/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: sync
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

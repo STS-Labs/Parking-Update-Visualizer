@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parking Survey Progress</title>
+  <meta name="description" content="Live progress map of geolocated traffic sign detections.">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="map"></div>
+
+  <aside id="panel">
+    <header>
+      <button id="toggle" aria-label="Toggle panel">☰</button>
+      <div>
+        <h1>Parking Survey Progress</h1>
+        <div id="updated" class="muted">Loading…</div>
+      </div>
+    </header>
+    <div id="panel-body">
+      <section class="totals">
+        <div><b id="t-points">–</b><span>signs</span></div>
+        <div><b id="t-km">–</b><span>km driven</span></div>
+        <div><b id="t-sessions">–</b><span>sessions</span></div>
+      </section>
+
+      <section>
+        <label class="row" for="minconf">Min confidence <b id="minconf-val">0.00</b></label>
+        <input type="range" id="minconf" min="0" max="1" step="0.05" value="0">
+        <div class="legend">
+          <span><i style="background:var(--c-low)"></i>&lt; 0.6</span>
+          <span><i style="background:var(--c-mid)"></i>0.6–0.8</span>
+          <span><i style="background:var(--c-high)"></i>≥ 0.8</span>
+        </div>
+      </section>
+
+      <section>
+        <h2>Sessions</h2>
+        <div id="sessions"><p class="muted">Waiting for first upload…</p></div>
+      </section>
+    </div>
+  </aside>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
+  <script src="signs.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

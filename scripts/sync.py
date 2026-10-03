@@ -30,6 +30,9 @@ SESSIONS_DIR = os.path.join(DATA, "sessions")
 CHECKPOINT_RE = re.compile(r"^checkpoint_(\d+)$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
+FAR_FROM_TRACK_M = 50.0  # signs at least this far from the GNSS track are georeferencing errors
+GNSS_GAP_S = 10.0        # no track segment (and no route line) across a longer gap between fixes
+
 
 def log(*a):
     print(*a, file=sys.stderr, flush=True)
@@ -73,6 +76,9 @@ class DriveSource:
         return (f"https://drive.google.com/thumbnail?id={fid}&sz=w1200",
                 f"https://drive.google.com/file/d/{fid}/view")
 
+    def photo_urls_for_id(self, file_id):
+        return self.photo_urls({"id": file_id})
+
 
 class LocalSource:
     """Same interface as DriveSource but over a local directory (for testing)."""
@@ -92,6 +98,9 @@ class LocalSource:
         url = "file://" + entry["id"]
         return url, url
 
+    def photo_urls_for_id(self, file_id):
+        return None  # Drive file ids mean nothing locally; photos/ is listed instead
+
 
 # --------------------------------------------------------------------------- helpers
 
@@ -110,6 +119,15 @@ def pick_latest_checkpoint(entries):
         return final[0]
     cps = [(int(m.group(1)), e) for e in entries if e["folder"] and (m := CHECKPOINT_RE.match(e["name"]))]
     return max(cps, key=lambda t: t[0])[1] if cps else None
+
+
+def checkpoint_candidates(entries):
+    """final first, then checkpoint folders newest first. The uploader sends a
+    checkpoint's progress.json last, so the first one that has it is complete."""
+    final = [e for e in entries if e["folder"] and e["name"].lower() == "final"]
+    cps = sorted(((int(m.group(1)), e) for e in entries if e["folder"] and (m := CHECKPOINT_RE.match(e["name"]))),
+                 key=lambda t: -t[0])
+    return final + [e for _, e in cps]
 
 
 def slug(s):
@@ -235,27 +253,84 @@ def line_km(lines):
     return km
 
 
-def split_track(src, entries, progress):
+def split_runs(timed, max_gap_s=GNSS_GAP_S):
+    """Split time-ordered (datetime, coord) fixes wherever no fix came for more than max_gap_s."""
+    runs, run = [], []
+    for t, c in timed:
+        if run and (t - run[-1][0]).total_seconds() > max_gap_s:
+            runs.append(run)
+            run = []
+        run.append((t, c))
+    if run:
+        runs.append(run)
+    return runs
+
+
+def split_track(src, entries, progress, pts):
     """-> (processed_lines, pending_lines).
 
     The GNSS track covers the whole recording, but detection only reaches svo_frame/svo_frames_total of it.
     The track's time span equals the video duration, so cut it at the same fraction of time.
+    The line is broken where the GNSS log has gaps, instead of drawing a straight line across them.
     """
-    pts = read_track_points(src, entries)
     timed = [p for p in pts if p[0] is not None]
     total = progress.get("svo_frames_total") or 0
     frac = 1.0 if progress.get("final") else (progress.get("svo_frame", 0) / total if total else None)
     if len(timed) >= 2 and frac is not None:
         t0, t1 = timed[0][0], timed[-1][0]
         cutoff = t0 + (t1 - t0) * max(0.0, min(1.0, frac))
-        done = [c for t, c in timed if t <= cutoff]
-        rest = [c for t, c in timed if t >= cutoff]
-        if done and rest:
-            rest.insert(0, done[-1])  # connect the two parts
-        done, rest = thin(done), thin(rest)
-        return ([done] if len(done) >= 2 else []), ([rest] if len(rest) >= 2 else [])
+        done_lines, pending_lines = [], []
+        for run in split_runs(timed):
+            done = [c for t, c in run if t <= cutoff]
+            rest = [c for t, c in run if t >= cutoff]
+            if done and rest:
+                rest.insert(0, done[-1])  # connect the two parts
+            for line, out in ((thin(done), done_lines), (thin(rest), pending_lines)):
+                if len(line) >= 2:
+                    out.append(line)
+        return done_lines, pending_lines
     lines = read_track(src, entries) or ([thin([c for _, c in pts])] if len(pts) >= 2 else [])
     return lines, []
+
+
+class TrackIndex:
+    """Distance (m) from a point to the GNSS track: segments between consecutive fixes (none across a
+    GNSS gap), bucketed in a coarse grid so thousands of signs stay fast."""
+
+    CELL_M = 100.0
+
+    def __init__(self, pts):
+        timed = [p for p in pts if p[0] is not None]
+        runs = split_runs(timed) if len(timed) >= 2 else [list(pts)]
+        coords = [c for _, c in pts]
+        self.lat0 = sum(c[1] for c in coords) / len(coords) if coords else 0.0
+        self.kx = 111320.0 * math.cos(math.radians(self.lat0))
+        self.grid = {}
+        for run in runs:
+            xy = [self._xy(c) for _, c in run]
+            if len(xy) == 1:
+                xy = xy * 2
+            for a, b in zip(xy, xy[1:]):
+                for cx in range(int(min(a[0], b[0]) // self.CELL_M), int(max(a[0], b[0]) // self.CELL_M) + 1):
+                    for cy in range(int(min(a[1], b[1]) // self.CELL_M), int(max(a[1], b[1]) // self.CELL_M) + 1):
+                        self.grid.setdefault((cx, cy), []).append((a, b))
+
+    def _xy(self, c):
+        return c[0] * self.kx, c[1] * 111320.0
+
+    def distance(self, lon, lat):
+        """Metres to the nearest track segment; inf if none within ~100 m."""
+        px, py = self._xy([lon, lat])
+        cx, cy = int(px // self.CELL_M), int(py // self.CELL_M)
+        best = math.inf
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for (ax, ay), (bx, by) in self.grid.get((cx + dx, cy + dy), ()):
+                    vx, vy = bx - ax, by - ay
+                    seg2 = vx * vx + vy * vy
+                    u = 0.0 if seg2 == 0 else max(0.0, min(1.0, ((px - ax) * vx + (py - ay) * vy) / seg2))
+                    best = min(best, math.hypot(px - ax - u * vx, py - ay - u * vy))
+        return best
 
 
 def raw_stats(raw_bytes):
@@ -296,17 +371,30 @@ def process_session(src, date, session_entry, previous):
     name = session_entry["name"]
     sid = slug(f"{date}_{name}") if date else slug(name)
     children = src.list(session_entry["id"])
-    cp = pick_latest_checkpoint(children)
+    cp, entries, prog_e = None, None, None
+    for candidate in checkpoint_candidates(children):
+        listing = src.list(candidate["id"])
+        prog_e = find(listing, "progress.json")
+        if prog_e:
+            cp, entries = candidate, listing
+            break
+        log(f"  {sid}: {candidate['name']} still uploading (no progress.json yet), using an older one")
     if not cp:
-        log(f"  {sid}: no checkpoint folder yet")
+        log(f"  {sid}: no complete checkpoint yet")
         return None
-    entries = src.list(cp["id"])
+    progress = json.loads(src.read(prog_e))
 
-    prog_e = find(entries, "progress.json")
-    progress = json.loads(src.read(prog_e)) if prog_e else {}
-
-    # photos: map "<photos folder>/<file>.jpg" -> Drive file. Listed before the skip check because
-    # photos keep arriving after the rest of the checkpoint has been uploaded.
+    # Photos, newest layout first:
+    #  1. <checkpoint>/*_photo_ids.json: photo_key -> Drive file id of <session>/photos/<photo_key>
+    #  2. <session>/photos/ listed directly (local testing: ids mean nothing there)
+    #  3. checkpoints up to 019: "<checkpoint>_photos/<file>.jpg" inside the checkpoint folder
+    ids_e = find(entries, "_photo_ids.json")
+    photo_ids = json.loads(src.read(ids_e)) if ids_e else {}
+    shared = {}
+    if not photo_ids:
+        for e in children:
+            if e["folder"] and e["name"] == "photos":
+                shared = {p["name"]: p for p in src.list(e["id"]) if not p["folder"]}
     photos = {}
     for e in entries:
         if e["folder"] and e["name"].lower().endswith("_photos"):
@@ -315,7 +403,7 @@ def process_session(src, date, session_entry, previous):
                     photos[f"{e['name']}/{p['name']}"] = p
                     photos.setdefault(p["name"], p)
 
-    stamp = f"{cp['name']}|{progress.get('written_at')}|{len(entries)}|{len(photos)}"
+    stamp = f"{cp['name']}|{progress.get('written_at')}|{len(entries)}|{len(photos) + len(photo_ids) + len(shared)}"
     out_path = os.path.join(SESSIONS_DIR, sid + ".geojson")
     if previous and previous.get("stamp") == stamp and os.path.exists(out_path):
         log(f"  {sid}: unchanged ({cp['name']})")
@@ -330,6 +418,10 @@ def process_session(src, date, session_entry, previous):
     raw_e = find(entries, ".raw.jsonl")
     rows = raw_stats(src.read(raw_e)) if raw_e else []
 
+    track_pts = read_track_points(src, entries)
+    track_index = TrackIndex(track_pts) if track_pts else None
+    dropped_far = 0
+
     features = []
     for f in points.get("features", []):
         g = f.get("geometry") or {}
@@ -337,10 +429,23 @@ def process_session(src, date, session_entry, previous):
             continue
         p = dict(f.get("properties") or {})
         coords = g["coordinates"]
-        img = p.get("image") or ""
-        ph = photos.get(img) or photos.get(os.path.basename(img))
-        if ph:
-            p["photo_url"], p["photo_view"] = src.photo_urls(ph)
+        # Points in GNSS gaps (gnss_gap) can't be checked against the track; they are shown as unverified.
+        if (track_index and not p.get("gnss_gap")
+                and track_index.distance(coords[0], coords[1]) >= FAR_FROM_TRACK_M):
+            dropped_far += 1
+            continue
+        key = p.get("photo_key")
+        urls = None
+        if key and key in photo_ids:
+            urls = src.photo_urls_for_id(photo_ids[key])
+        elif key and key in shared:
+            urls = src.photo_urls(shared[key])
+        else:
+            img = p.get("image") or ""
+            ph = photos.get(img) or photos.get(os.path.basename(img))
+            urls = src.photo_urls(ph) if ph else None
+        if urls:
+            p["photo_url"], p["photo_view"] = urls
         labels = p.get("labels") or []
         if isinstance(labels, str):
             labels = [labels]
@@ -354,7 +459,9 @@ def process_session(src, date, session_entry, previous):
                          "geometry": {"type": "Point", "coordinates": [round(coords[0], 7), round(coords[1], 7)]},
                          "properties": p})
 
-    track, pending = split_track(src, entries, progress)
+    if dropped_far:
+        log(f"  {sid}: {dropped_far} sign(s) >= {FAR_FROM_TRACK_M:.0f} m from the GNSS track left out")
+    track, pending = split_track(src, entries, progress, track_pts)
     if pending:
         features.append({"type": "Feature", "geometry": {"type": "MultiLineString", "coordinates": pending},
                          "properties": {"kind": "track_pending", "session": sid}})
@@ -387,6 +494,8 @@ def process_session(src, date, session_entry, previous):
         "stamp": stamp,
         "file": f"data/sessions/{sid}.geojson",
         "points": sum(1 for f in features if f["properties"].get("kind") == "sign"),
+        "unverified_points": sum(1 for f in features if f["properties"].get("gnss_gap")),
+        "dropped_far": dropped_far,
         "photos_missing": missing,
         "track_km": round(track_km, 2),
         "recorded_km": round(track_km + line_km(pending), 2),

@@ -39,6 +39,7 @@ input[type=range] { width: 100%; }
 .legend i.route.pending { background: repeating-linear-gradient(90deg, #8a91a0 0 4px, transparent 4px 7px); }
 .legend { flex-wrap: wrap; row-gap: 4px; }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+.legend i.unverified { background: #fff; border: 2px dashed var(--muted); }
 
 .sess { padding: 8px 0; border-top: 1px solid var(--line); }
 .sess:first-child { border-top: 0; padding-top: 0; }
@@ -64,6 +65,7 @@ input[type=range] { width: 100%; }
 .pop td { padding: 2px 0; vertical-align: top; }
 .pop td:first-child { color: var(--muted); width: 42%; }
 .pop .conf { font-weight: 700; }
+.pop .warn { color: #b45309; }
 .pop .links { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
 .pop .links a { font-size: 12px; text-decoration: none; background: var(--accent); color: #fff !important; padding: 4px 8px; border-radius: 6px; }
 

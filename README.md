@@ -7,15 +7,25 @@ It shows the route the car has covered, every geolocated sign, and a popup per s
 ## How it updates
 
 1. The detection laptop uploads checkpoints to the public Drive folder
-   `STS-Labs-ZED-outputs/<date>/<session>/<checkpoint_NNN|final>/`.
+   `STS-Labs-ZED-outputs/<date>/<session>/<checkpoint_NNN|final>/`, and every review photo once to
+   `STS-Labs-ZED-outputs/<date>/<session>/photos/`. Each checkpoint lists its photos' Drive ids in
+   `*_photo_ids.json` and goes up with its `*_progress.json` last.
 2. Every 15 minutes the GitHub Action [`sync-and-deploy`](.github/workflows/sync-and-deploy.yml) runs
    [`scripts/sync.py`](scripts/sync.py). It crawls the Drive folder without credentials (the folder must stay shared as
-   "anyone with the link"), takes the newest checkpoint of each session (or `final`), and writes:
+   "anyone with the link"), takes the newest *complete* checkpoint of each session (or `final`): one still uploading
+   has no `progress.json` yet and is skipped. It writes:
    - `data/index.json`: sessions, progress and bounding boxes
    - `data/sessions/<id>.geojson`: sign points and the GNSS track (converted from the shapefile)
 3. If anything changed, the data is committed and the site is redeployed. Open pages re-check for new data every 2 minutes.
 
-Photos are not copied: popups load them straight from Drive thumbnails.
+Photos are not copied: popups load them straight from Drive thumbnails. Checkpoints up to `checkpoint_019` of
+`session_2026-09-30_14-10-32` still carry their own `*_photos/` folder; `sync.py` reads both layouts.
+
+What the map leaves out or marks:
+- Signs 50 m or more from the GNSS track are dropped (georeferencing errors; see `FAR_FROM_TRACK_M` in `sync.py`).
+- Signs in a GNSS gap (`gnss_gap` from the pipeline: no usable fix around them) can't be checked against the
+  track. They are kept, drawn as hollow dashed rings, and their popup says the position comes from camera tracking only.
+- The route line is broken where the GNSS log has gaps longer than 10 s, instead of a straight line across them.
 
 Click **Actions → Sync Drive & deploy map → Run workflow** to force an update immediately.
 

@@ -70,6 +70,9 @@
     const stats = p.label_stats || {};
     const statRows = Object.keys(stats).map((l) =>
       `<tr><td>${esc(l)} detections</td><td>${stats[l].detections} · mean ${stats[l].mean_conf.toFixed(2)} · max ${stats[l].max_conf.toFixed(2)}</td></tr>`).join("");
+    const unverified = p.gnss_gap
+      ? `<tr><td>Position</td><td class="warn">No GNSS here: placed by camera tracking only, may be tens of metres off</td></tr>`
+      : "";
     const gm = `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`;
     const sv = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lon}`;
     return `<div class="pop">
@@ -82,6 +85,7 @@
         <tr><td>First seen</td><td>${fmtTs(p.first_ts)}</td></tr>
         <tr><td>Last seen</td><td>${fmtTs(p.last_ts)}</td></tr>
         <tr><td>Location</td><td>${lat.toFixed(6)}, ${lon.toFixed(6)}${p.alt != null ? ` · ${p.alt} m` : ""}</td></tr>
+        ${unverified}
         <tr><td>Pole ID</td><td>${esc(p.pole_id)}</td></tr>
         <tr><td>Session</td><td>${esc(meta.name)} · ${esc(meta.checkpoint)}</td></tr>
       </table>
@@ -123,8 +127,11 @@
         tracks.push(L.geoJSON(f, { style: { color, weight: 4, opacity: 0.85 }, interactive: false }));
       } else if (f.geometry.type === "Point") {
         const [lon, lat] = f.geometry.coordinates;
+        const style = p.gnss_gap  // no GNSS to check the position against: hollow, dashed ring
+          ? { radius: 7, weight: 2, color: confColor(p.conf), dashArray: "3 3", fillColor: "#fff", fillOpacity: 0.7 }
+          : { radius: 7, weight: 2, color: "#fff", fillColor: confColor(p.conf), fillOpacity: 0.95 };
         const m = L.circleMarker([lat, lon], {
-          radius: 7, weight: 2, color: "#fff", fillColor: confColor(p.conf), fillOpacity: 0.95, conf: p.conf, labels: (p.labels && p.labels.length) ? p.labels : ["?"]
+          ...style, conf: p.conf, labels: (p.labels && p.labels.length) ? p.labels : ["?"]
         });
         m.bindPopup(() => popupHtml(p, lat, lon, meta), { maxWidth: 320, autoPanPadding: [20, 20] });
         m.bindTooltip((p.labels || []).join(", ") + (p.conf != null ? ` (${(p.conf * 100).toFixed(0)}%)` : ""), { direction: "top", offset: [0, -6] });

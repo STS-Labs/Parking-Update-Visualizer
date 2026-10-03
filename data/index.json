@@ -1,45 +1,45 @@
 {
- "updated_at": "2026-10-03T22:18:46+00:00",
+ "updated_at": "2026-10-03T22:48:10+00:00",
  "sessions": [
   {
    "id": "2026-09-30_session_2026-09-30_14-10-32",
    "date": "2026-09-30",
    "name": "session_2026-09-30_14-10-32",
-   "checkpoint": "checkpoint_028",
-   "stamp": "checkpoint_028|2026-10-04 02:05:17|27|666",
+   "checkpoint": "checkpoint_029",
+   "stamp": "checkpoint_029|2026-10-04 02:35:19|27|687",
    "file": "data/sessions/2026-09-30_session_2026-09-30_14-10-32.geojson",
-   "points": 378,
+   "points": 399,
    "unverified_points": 0,
    "dropped_far": 0,
    "photos_missing": 0,
-   "track_km": 24.61,
+   "track_km": 25.57,
    "recorded_km": 31.03,
    "bbox": [
-    44.8060162,
+    44.8055546,
     41.5661726,
     44.9767407,
-    41.7049781
+    41.708876
    ],
    "progress": {
-    "frames_done": 110074,
+    "frames_done": 115089,
     "frames_expected": 208910,
-    "svo_frame": 110073,
+    "svo_frame": 115088,
     "svo_frames_total": 208910,
-    "video_time_reached": "63:06",
+    "video_time_reached": "65:54",
     "video_duration": "118:59",
-    "last_ts_ns": 1790781236934300000,
-    "checkpoint": "checkpoint_028",
+    "last_ts_ns": 1790781404133620000,
+    "checkpoint": "checkpoint_029",
     "final": false,
-    "runtime_min": 786.5,
+    "runtime_min": 816.5,
     "resumed_from": "checkpoint_020",
-    "raw_detections": 22937,
+    "raw_detections": 23708,
     "dropped_far_from_gnss": 2411,
-    "points": 378,
+    "points": 399,
     "unverified_points": 0,
-    "photos": 378,
-    "written_at": "2026-10-04 02:05:17"
+    "photos": 399,
+    "written_at": "2026-10-04 02:35:19"
    },
-   "synced_at": "2026-10-03T22:18:46+00:00"
+   "synced_at": "2026-10-03T22:48:10+00:00"
   }
  ]
 }

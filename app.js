@@ -71,7 +71,7 @@
     const statRows = Object.keys(stats).map((l) =>
       `<tr><td>${esc(l)} detections</td><td>${stats[l].detections} · mean ${stats[l].mean_conf.toFixed(2)} · max ${stats[l].max_conf.toFixed(2)}</td></tr>`).join("");
     const unverified = p.gnss_gap
-      ? `<tr><td>Position</td><td class="warn">No GNSS here: placed by camera tracking only, may be tens of metres off</td></tr>`
+      ? `<tr><td>Position</td><td class="warn">No GNSS here: placed by camera tracking only. In long GNSS gaps this can be hundreds of metres to over a kilometre off</td></tr>`
       : "";
     const gm = `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`;
     const sv = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lon}`;

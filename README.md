@@ -25,6 +25,8 @@ What the map leaves out or marks:
 - Signs 50 m or more from the GNSS track are dropped (georeferencing errors; see `FAR_FROM_TRACK_M` in `sync.py`).
 - Signs in a GNSS gap (`gnss_gap` from the pipeline: no usable fix around them) can't be checked against the
   track. They are kept, drawn as hollow dashed rings, and their popup says the position comes from camera tracking only.
+  Measured on `session_2026-09-30_14-10-32` (24.6 min without GNSS): camera tracking alone drifted by up to 4.4 km,
+  so points in the middle of a long gap can be hundreds of metres to over a kilometre off.
 - The route line is broken where the GNSS log has gaps longer than 10 s, instead of a straight line across them.
 
 Click **Actions → Sync Drive & deploy map → Run workflow** to force an update immediately.

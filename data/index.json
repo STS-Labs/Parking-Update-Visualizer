@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-10-06T14:44:57+00:00",
+ "updated_at": "2026-10-06T20:15:17+00:00",
  "sessions": [
   {
    "id": "2026-09-30_session_2026-09-30_10-53-17",
@@ -40,10 +40,11 @@
    "date": "2026-09-30",
    "name": "session_2026-09-30_14-10-32",
    "checkpoint": "final",
-   "stamp": "final|2026-10-04 12:17:04|28|2192",
+   "stamp": "final|2026-10-06 22:38:58|28|2215",
    "file": "data/sessions/2026-09-30_session_2026-09-30_14-10-32.geojson",
-   "points": 627,
-   "unverified_points": 107,
+   "points": 636,
+   "unverified_points": 4,
+   "route_placed_points": 115,
    "dropped_far": 0,
    "photos_missing": 0,
    "track_km": 31.03,
@@ -52,23 +53,22 @@
     44.7144704,
     41.5661726,
     44.9767407,
-    41.7232135
+    41.7277367
    ],
    "progress": {
-    "frames_done": "all",
-    "checkpoints_before_final": 48,
-    "resumed_from": "checkpoint_020",
+    "from_raw": "C:\\Users\\zuka\\Desktop\\Processing\\outputs\\session_2026-09-30_14-10-32_gapfix\\apply_pins\\patched.raw.jsonl",
     "checkpoint": "final",
     "final": true,
-    "runtime_min": 1398.2,
-    "raw_detections": 51988,
+    "runtime_min": 0.0,
+    "raw_detections": 51986,
     "dropped_far_from_gnss": 2411,
-    "points": 627,
-    "unverified_points": 107,
-    "photos": 627,
-    "written_at": "2026-10-04 12:17:04"
+    "points": 636,
+    "unverified_points": 116,
+    "route_placed_points": 115,
+    "photos": 636,
+    "written_at": "2026-10-06 22:38:58"
    },
-   "synced_at": "2026-10-04T09:03:13+00:00"
+   "synced_at": "2026-10-06T20:15:17+00:00"
   }
  ]
 }

@@ -70,9 +70,11 @@
     const stats = p.label_stats || {};
     const statRows = Object.keys(stats).map((l) =>
       `<tr><td>${esc(l)} detections</td><td>${stats[l].detections} · mean ${stats[l].mean_conf.toFixed(2)} · max ${stats[l].max_conf.toFixed(2)}</td></tr>`).join("");
-    const unverified = p.gnss_gap
-      ? `<tr><td>Position</td><td class="warn">No GNSS here: placed by camera tracking only. In long GNSS gaps this can be hundreds of metres to over a kilometre off</td></tr>`
-      : "";
+    const unverified = p.route_placed
+      ? `<tr><td>Position</td><td class="warn">No GNSS here: placed along the driven route from camera motion and manual position checks. Usually within ~10 m, occasionally up to ~70 m off</td></tr>`
+      : p.gnss_gap
+        ? `<tr><td>Position</td><td class="warn">No GNSS here: placed by camera tracking only. In long GNSS gaps this can be hundreds of metres to over a kilometre off</td></tr>`
+        : "";
     const gm = `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`;
     const sv = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lon}`;
     return `<div class="pop">
@@ -127,9 +129,13 @@
         tracks.push(L.geoJSON(f, { style: { color, weight: 4, opacity: 0.85 }, interactive: false }));
       } else if (f.geometry.type === "Point") {
         const [lon, lat] = f.geometry.coordinates;
-        const style = p.gnss_gap  // no GNSS to check the position against: hollow, dashed ring
-          ? { radius: 7, weight: 2, color: confColor(p.conf), dashArray: "3 3", fillColor: "#fff", fillOpacity: 0.7 }
-          : { radius: 7, weight: 2, color: "#fff", fillColor: confColor(p.conf), fillOpacity: 0.95 };
+        // no GNSS to check the position against: solid ring when placed along the
+        // driven route, dashed ring when only camera tracking placed it
+        const style = p.route_placed
+          ? { radius: 7, weight: 3, color: confColor(p.conf), fillColor: "#fff", fillOpacity: 0.9 }
+          : p.gnss_gap
+            ? { radius: 7, weight: 2, color: confColor(p.conf), dashArray: "3 3", fillColor: "#fff", fillOpacity: 0.7 }
+            : { radius: 7, weight: 2, color: "#fff", fillColor: confColor(p.conf), fillOpacity: 0.95 };
         const m = L.circleMarker([lat, lon], {
           ...style, conf: p.conf, labels: (p.labels && p.labels.length) ? p.labels : ["?"]
         });

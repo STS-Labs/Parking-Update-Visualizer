@@ -494,7 +494,9 @@ def process_session(src, date, session_entry, previous):
         "stamp": stamp,
         "file": f"data/sessions/{sid}.geojson",
         "points": sum(1 for f in features if f["properties"].get("kind") == "sign"),
-        "unverified_points": sum(1 for f in features if f["properties"].get("gnss_gap")),
+        "unverified_points": sum(1 for f in features if f["properties"].get("gnss_gap")
+                                 and not f["properties"].get("route_placed")),
+        "route_placed_points": sum(1 for f in features if f["properties"].get("route_placed")),
         "dropped_far": dropped_far,
         "photos_missing": missing,
         "track_km": round(track_km, 2),

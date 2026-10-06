@@ -1,6 +1,40 @@
 {
- "updated_at": "2026-10-04T09:03:13+00:00",
+ "updated_at": "2026-10-06T14:44:57+00:00",
  "sessions": [
+  {
+   "id": "2026-09-30_session_2026-09-30_10-53-17",
+   "date": "2026-09-30",
+   "name": "session_2026-09-30_10-53-17",
+   "checkpoint": "final",
+   "stamp": "final|2026-10-06 16:11:08|28|3729",
+   "file": "data/sessions/2026-09-30_session_2026-09-30_10-53-17.geojson",
+   "points": 1232,
+   "unverified_points": 0,
+   "dropped_far": 11,
+   "photos_missing": 0,
+   "track_km": 56.45,
+   "recorded_km": 56.45,
+   "bbox": [
+    44.7451393,
+    41.5381353,
+    45.0198535,
+    41.7231992
+   ],
+   "progress": {
+    "frames_done": "all",
+    "checkpoint": "final",
+    "final": true,
+    "source": "zed_box",
+    "box_job_id": "2026-10-01_14-27-34_1463ca",
+    "box_finished_at": "2026-10-06T12:00:11.993713",
+    "raw_detections": 62433,
+    "points": 1243,
+    "unverified_points": 0,
+    "photos": 1243,
+    "written_at": "2026-10-06 16:11:08"
+   },
+   "synced_at": "2026-10-06T14:44:51+00:00"
+  },
   {
    "id": "2026-09-30_session_2026-09-30_14-10-32",
    "date": "2026-09-30",

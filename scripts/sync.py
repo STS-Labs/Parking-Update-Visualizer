@@ -164,7 +164,7 @@ def make_reprojector(prj_text):
 
 def read_track(src, entries):
     """Track line shapefile -> list of LineString coordinate lists ([lon, lat])."""
-    shp = find(entries, "_gnss_track_line.shp")
+    shp = find(entries, "gnss_track_line.shp")
     if not shp:
         return []
     base = shp["name"][:-4]
@@ -191,7 +191,7 @@ def read_track(src, entries):
 
 def read_track_points(src, entries):
     """GNSS track points shapefile -> list of (datetime | None, [lon, lat]) in recording order."""
-    shp = find(entries, "_gnss_track_points.shp")
+    shp = find(entries, "gnss_track_points.shp")
     if not shp:
         return []
     base = shp["name"][:-4]
@@ -258,7 +258,7 @@ def split_runs(timed, max_gap_s=GNSS_GAP_S):
     return runs
 
 
-def split_track(src, entries, progress, pts):
+def split_track(progress, pts, fallback_lines):
     """-> (processed_lines, pending_lines).
 
     The GNSS track covers the whole recording, but detection only reaches svo_frame/svo_frames_total of it.
@@ -281,7 +281,7 @@ def split_track(src, entries, progress, pts):
                 if len(line) >= 2:
                     out.append(line)
         return done_lines, pending_lines
-    lines = read_track(src, entries) or ([thin([c for _, c in pts])] if len(pts) >= 2 else [])
+    lines = fallback_lines() or ([thin([c for _, c in pts])] if len(pts) >= 2 else [])
     return lines, []
 
 
@@ -359,10 +359,20 @@ def pole_detection_stats(rows, labels, first_ts, last_ts):
 
 # --------------------------------------------------------------------------- session processing
 
-def process_session(src, date, session_entry, previous):
-    name = session_entry["name"]
-    sid = slug(f"{date}_{name}") if date else slug(name)
-    children = src.list(session_entry["id"])
+def folder_photos(src, entries):
+    """Photos in *_photos/ subfolders, keyed "<folder>/<file>" and "<file>"."""
+    photos = {}
+    for e in entries:
+        if e["folder"] and e["name"].lower().endswith("_photos"):
+            for p in src.list(e["id"]):
+                if not p["folder"]:
+                    photos[f"{e['name']}/{p['name']}"] = p
+                    photos.setdefault(p["name"], p)
+    return photos
+
+
+def select_legacy(src, sid, children):
+    """Newest complete checkpoint (or final) of a legacy session."""
     cp, entries, prog_e = None, None, None
     for candidate in checkpoint_candidates(children):
         listing = src.list(candidate["id"])
@@ -387,73 +397,99 @@ def process_session(src, date, session_entry, previous):
         for e in children:
             if e["folder"] and e["name"] == "photos":
                 shared = {p["name"]: p for p in src.list(e["id"]) if not p["folder"]}
-    photos = {}
-    for e in entries:
-        if e["folder"] and e["name"].lower().endswith("_photos"):
-            for p in src.list(e["id"]):
-                if not p["folder"]:
-                    photos[f"{e['name']}/{p['name']}"] = p
-                    photos.setdefault(p["name"], p)
-
+    photos = folder_photos(src, entries)
     stamp = f"{cp['name']}|{progress.get('written_at')}|{len(entries)}|{len(photos) + len(photo_ids) + len(shared)}"
+    return {"label": cp["name"], "progress": progress, "stamp": stamp, "tolerant": False,
+            "parts": [{"name": cp["name"], "entries": entries, "photo_ids": photo_ids, "shared": shared,
+                       "photos": photos}]}
+
+
+def process_session(src, date, session_entry, previous):
+    name = session_entry["name"]
+    sid = slug(f"{date}_{name}") if date else slug(name)
+    children = src.list(session_entry["id"])
+    if any(e["folder"] and e["name"].lower() == "chunks" for e in children):
+        sel = select_ststcc(src, sid, children)
+    else:
+        sel = select_legacy(src, sid, children)
+    if not sel:
+        return None
+    return render_session(src, sid, date, name, sel, previous)
+
+
+def render_session(src, sid, date, name, sel, previous):
+    progress, stamp = sel["progress"], sel["stamp"]
     out_path = os.path.join(SESSIONS_DIR, sid + ".geojson")
     if previous and previous.get("stamp") == stamp and os.path.exists(out_path):
-        log(f"  {sid}: unchanged ({cp['name']})")
+        log(f"  {sid}: unchanged ({sel['label']})")
         return previous
 
-    log(f"  {sid}: processing {cp['name']}")
-    geo_e = find(entries, ".geojson")
-    if not geo_e:
-        raise RuntimeError(f"no .geojson in {cp['name']}")
-    points = json.loads(src.read(geo_e))
+    log(f"  {sid}: processing {sel['label']}")
+    loaded, rows, track_pts = [], [], []
+    for part in sel["parts"]:
+        try:
+            geo_e = find(part["entries"], ".geojson")
+            if not geo_e:
+                raise RuntimeError(f"no .geojson in {part['name']}")
+            points = json.loads(src.read(geo_e))
+            raw_e = find(part["entries"], ".raw.jsonl")
+            part_rows = raw_stats(src.read(raw_e)) if raw_e else []
+            part_pts = read_track_points(src, part["entries"])
+        except Exception as e:  # noqa: BLE001
+            if not sel["tolerant"]:
+                raise
+            log(f"  WARNING {sid}: {part['name']} unreadable ({e!r}), left out")
+            continue
+        loaded.append((part, points))
+        rows.extend(part_rows)
+        track_pts.extend(part_pts)
+    rows.sort()
 
-    raw_e = find(entries, ".raw.jsonl")
-    rows = raw_stats(src.read(raw_e)) if raw_e else []
-
-    track_pts = read_track_points(src, entries)
     track_index = TrackIndex(track_pts) if track_pts else None
     dropped_far = 0
 
     features = []
-    for f in points.get("features", []):
-        g = f.get("geometry") or {}
-        if g.get("type") != "Point":
-            continue
-        p = dict(f.get("properties") or {})
-        coords = g["coordinates"]
-        # Points in GNSS gaps (gnss_gap) can't be checked against the track; they are shown as unverified.
-        if (track_index and not p.get("gnss_gap")
-                and track_index.distance(coords[0], coords[1]) >= FAR_FROM_TRACK_M):
-            dropped_far += 1
-            continue
-        key = p.get("photo_key")
-        urls = None
-        if key and key in photo_ids:
-            urls = src.photo_urls_for_id(photo_ids[key])
-        elif key and key in shared:
-            urls = src.photo_urls(shared[key])
-        else:
-            img = p.get("image") or ""
-            ph = photos.get(img) or photos.get(os.path.basename(img))
-            urls = src.photo_urls(ph) if ph else None
-        if urls:
-            p["photo_url"], p["photo_view"] = urls
-        labels = p.get("labels") or []
-        if isinstance(labels, str):
-            labels = [labels]
-            p["labels"] = labels
-        if rows and p.get("first_ts") and p.get("last_ts"):
-            p["label_stats"] = pole_detection_stats(rows, set(labels), int(p["first_ts"]), int(p["last_ts"]))
-        p["alt"] = round(coords[2], 2) if len(coords) > 2 else None
-        p["session"] = sid
-        p["kind"] = "sign"
-        features.append({"type": "Feature",
-                         "geometry": {"type": "Point", "coordinates": [round(coords[0], 7), round(coords[1], 7)]},
-                         "properties": p})
+    for part, points in loaded:
+        for f in points.get("features", []):
+            g = f.get("geometry") or {}
+            if g.get("type") != "Point":
+                continue
+            p = dict(f.get("properties") or {})
+            coords = g["coordinates"]
+            # Points in GNSS gaps (gnss_gap) can't be checked against the track; they are shown as unverified.
+            if (track_index and not p.get("gnss_gap")
+                    and track_index.distance(coords[0], coords[1]) >= FAR_FROM_TRACK_M):
+                dropped_far += 1
+                continue
+            key = p.get("photo_key")
+            urls = None
+            if key and key in part["photo_ids"]:
+                urls = src.photo_urls_for_id(part["photo_ids"][key])
+            elif key and key in part["shared"]:
+                urls = src.photo_urls(part["shared"][key])
+            else:
+                img = p.get("image") or ""
+                ph = part["photos"].get(img) or part["photos"].get(os.path.basename(img))
+                urls = src.photo_urls(ph) if ph else None
+            if urls:
+                p["photo_url"], p["photo_view"] = urls
+            labels = p.get("labels") or []
+            if isinstance(labels, str):
+                labels = [labels]
+                p["labels"] = labels
+            if rows and p.get("first_ts") and p.get("last_ts"):
+                p["label_stats"] = pole_detection_stats(rows, set(labels), int(p["first_ts"]), int(p["last_ts"]))
+            p["alt"] = round(coords[2], 2) if len(coords) > 2 else None
+            p["session"] = sid
+            p["kind"] = "sign"
+            features.append({"type": "Feature",
+                             "geometry": {"type": "Point", "coordinates": [round(coords[0], 7), round(coords[1], 7)]},
+                             "properties": p})
 
     if dropped_far:
         log(f"  {sid}: {dropped_far} sign(s) >= {FAR_FROM_TRACK_M:.0f} m from the GNSS track left out")
-    track, pending = split_track(src, entries, progress, track_pts)
+    track, pending = split_track(progress, track_pts,
+                                 lambda: [ln for part, _ in loaded for ln in read_track(src, part["entries"])])
     if pending:
         features.append({"type": "Feature", "geometry": {"type": "MultiLineString", "coordinates": pending},
                          "properties": {"kind": "track_pending", "session": sid}})
@@ -482,7 +518,7 @@ def process_session(src, date, session_entry, previous):
         "id": sid,
         "date": date,
         "name": name,
-        "checkpoint": cp["name"],
+        "checkpoint": sel["label"],
         "stamp": stamp,
         "file": f"data/sessions/{sid}.geojson",
         "points": sum(1 for f in features if f["properties"].get("kind") == "sign"),
@@ -497,6 +533,11 @@ def process_session(src, date, session_entry, previous):
         "progress": progress,
         "synced_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
+
+
+def select_ststcc(src, sid, children):  # implemented in Task 4
+    log(f"  {sid}: sts-cc layout not supported yet")
+    return None
 
 
 def is_session_listing(entries):

@@ -29,7 +29,7 @@ SESSIONS_DIR = os.path.join(DATA, "sessions")
 
 CHECKPOINT_RE = re.compile(r"^checkpoint_(\d+)$")
 STS_CHUNK_RE = re.compile(r"^\d+$")             # sts-cc: <session>/chunks/<NNN>/
-MANIFEST_RE = re.compile(r"^manifest_\d+\.json$")  # sts-cc: <session>/logs/manifest_<NNN>.json (sealed chunks)
+MANIFEST_RE = re.compile(r"^manifest_(\d+)\.json$")  # sts-cc: <session>/logs/manifest_<NNN>.json (sealed chunks)
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 FAR_FROM_TRACK_M = 50.0  # signs at least this far from the GNSS track are georeferencing errors
@@ -427,7 +427,7 @@ def render_session(src, sid, date, name, sel, previous):
         return previous
 
     log(f"  {sid}: processing {sel['label']}")
-    loaded, rows, track_pts = [], [], []
+    loaded, rows, track_pts, skipped = [], [], [], 0
     for part in sel["parts"]:
         try:
             geo_e = find(part["entries"], ".geojson")
@@ -441,6 +441,7 @@ def render_session(src, sid, date, name, sel, previous):
             if not sel["tolerant"]:
                 raise
             log(f"  WARNING {sid}: {part['name']} unreadable ({e!r}), left out")
+            skipped += 1
             continue
         loaded.append((part, points))
         rows.extend(part_rows)
@@ -514,6 +515,9 @@ def render_session(src, sid, date, name, sel, previous):
                   and "photo_url" not in f["properties"])
     if missing:
         log(f"  {sid}: {missing} photo(s) not uploaded yet; will retry next run")
+    if skipped:
+        log(f"  {sid}: {skipped} part(s) left out; will retry next run")
+    if missing or skipped:
         stamp += "|incomplete"  # never matches the next run's stamp, so the session is re-processed
 
     return {
@@ -552,62 +556,86 @@ def read_json_entry(src, entry):
     return data if isinstance(data, dict) else {}
 
 
+def utc_text(ts):
+    try:
+        return datetime.fromtimestamp(float(ts), timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
 def select_ststcc(src, sid, children):
     """sts-cc session: final/ once _status.json says final_complete, else every chunk whose .geojson
     is uploaded (chunks/<NNN>/; others are still uploading or were superseded)."""
     folders = {e["name"].lower(): e for e in children if e["folder"]}
+    status = read_json_entry(src, find(children, "_status.json"))
+    if status.get("state") == "final_complete" and "final" in folders:
+        # finished session: only final/ is read, so old sessions stay cheap for the 15-min Action
+        listing = src.list(folders["final"]["id"])
+        if find(listing, ".geojson"):
+            photos = folder_photos(src, listing)
+            progress = {"checkpoint": "final", "final": True, "chunks": status.get("chunks"),
+                        "written_at": utc_text(status.get("updated_at"))}
+            stamp = "|".join(["final", str(status.get("updated_at")), str(status.get("merge_run_id")),
+                              f"{len(listing)}:{len(photos)}"])
+            # never tolerant: an unreadable final must keep the previous data, not cache an empty session
+            return {"label": "final", "progress": progress, "stamp": stamp, "tolerant": False,
+                    "parts": [{"name": "final", "entries": listing, "photo_ids": {}, "shared": {},
+                               "photos": photos}]}
+
+    manifests = {}  # chunk number -> box manifest (sealed chunks; frames are exact, unlike a resumed run)
+    if "logs" in folders:
+        for e in src.list(folders["logs"]["id"]):
+            m = MANIFEST_RE.match(e["name"]) if not e["folder"] else None
+            if m:
+                manifests[int(m.group(1))] = read_json_entry(src, e)
+
+    def grabbed(man):
+        frames = man.get("frames")
+        return int(frames.get("grabbed") or 0) if isinstance(frames, dict) else 0
+
+    def duration_s(man):
+        t = man.get("time")
+        return float(t.get("duration_s") or 0) if isinstance(t, dict) else 0.0
+
     chunks = sorted((e for e in src.list(folders["chunks"]["id"]) if e["folder"] and STS_CHUNK_RE.match(e["name"])),
                     key=lambda e: int(e["name"]))
-    done, frames_done, footage, raw, written = [], 0, 0.0, 0, None
+    done, frames_done, footage, raw, written, runs = [], 0, 0.0, 0, None, []
     for c in chunks:
         entries = src.list(c["id"])
         if not find(entries, ".geojson"):
             log(f"  {sid}: chunk {c['name']} has no .geojson yet, left out")
             continue
         rs = read_json_entry(src, find(entries, "run_stats.json"))
-        frames_done += int(rs.get("frames") or 0)
-        footage += float(rs.get("footage_s") or 0)
+        man = manifests.get(int(c["name"]), {})
+        frames_done += grabbed(man) or int(rs.get("frames") or 0)
+        footage += duration_s(man) or float(rs.get("footage_s") or 0)
         raw += int(rs.get("raw_detections") or 0)
         if rs.get("started_at"):
             written = max(written or 0.0, float(rs["started_at"]) + float(rs.get("wall_s") or 0))
+        runs.append(str(rs.get("started_at")))  # a reprocessed chunk changes this even with the same files
         done.append((c["name"], entries))
-
-    frames_expected, duration = frames_done, footage  # sealed chunks so far, from the box manifests
-    if "logs" in folders:
-        fe, du = 0, 0.0
-        for e in src.list(folders["logs"]["id"]):
-            if not e["folder"] and MANIFEST_RE.match(e["name"]):
-                m = read_json_entry(src, e)
-                fe += int((m.get("frames") or {}).get("grabbed") or 0)
-                du += float((m.get("time") or {}).get("duration_s") or 0)
-        if fe >= frames_done:
-            frames_expected, duration = fe, du
-
-    final, parts = False, [(n, entries) for n, entries in done]
-    status = read_json_entry(src, find(children, "_status.json"))
-    if status.get("state") == "final_complete" and "final" in folders:
-        listing = src.list(folders["final"]["id"])
-        if find(listing, ".geojson"):
-            final, parts = True, [("final", listing)]
-    if not parts:
+    if not done:
         log(f"  {sid}: no chunk uploaded yet")
         return None
 
-    label = "final" if final else f"{len(done)} chunk{'s' if len(done) != 1 else ''}"
-    reached = frames_expected if final else frames_done
+    frames_expected = sum(grabbed(m) for m in manifests.values())
+    duration = sum(duration_s(m) for m in manifests.values())
+    if frames_expected < frames_done:
+        frames_expected, duration = frames_done, footage
+
+    label = f"{len(done)} chunk{'s' if len(done) != 1 else ''}"
     progress = {
-        "checkpoint": label, "final": final, "chunks": len(done),
-        "frames_done": reached, "frames_expected": frames_expected,
-        "svo_frame": reached, "svo_frames_total": reached,  # the uploaded track is all processed
-        "video_time_reached": clock(duration if final else footage), "video_duration": clock(duration),
+        "checkpoint": label, "final": False, "chunks": len(done),
+        "frames_done": frames_done, "frames_expected": frames_expected,
+        "svo_frame": frames_done, "svo_frames_total": frames_done,  # the uploaded track is all processed
+        "video_time_reached": clock(footage), "video_duration": clock(duration),
         "raw_detections": raw,
-        "written_at": (datetime.fromtimestamp(written, timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-                       if written else None),
+        "written_at": utc_text(written) if written else None,
     }
     out = [{"name": n, "entries": entries, "photo_ids": {}, "shared": {}, "photos": folder_photos(src, entries)}
-           for n, entries in parts]
+           for n, entries in done]
     stamp = "|".join([label, str(frames_expected), status.get("state") or "",
-                      ",".join(f"{p['name']}:{len(p['entries'])}:{len(p['photos'])}" for p in out)])
+                      ",".join(f"{p['name']}:{len(p['entries'])}:{len(p['photos'])}:{r}" for p, r in zip(out, runs))])
     return {"label": label, "progress": progress, "stamp": stamp, "tolerant": True, "parts": out}
 
 

@@ -174,3 +174,75 @@ def test_ststcc_corrupt_chunk_left_out(tmp_path):
     (c2 / "S1_c0002.geojson").write_text("{broken")
     r = run_one(sync, d)
     assert r["points"] == 1
+
+
+# --- review fixes -------------------------------------------------------------------------------
+
+def test_ststcc_corrupt_final_is_not_cached_as_empty(tmp_path):
+    import pytest
+    sync = load_sync(tmp_path)
+    d = tmp_path / "drive"
+    sess = d / "2026-10-07" / "S1"
+    sts_chunk(sess, 1, [(44.8001, 41.70, "7.4")])
+    mk(sess, "final/S1.geojson", "{truncated")
+    mk(sess, "_status.json", {"state": "final_complete", "updated_at": 1.0})
+    with pytest.raises(Exception):  # main() keeps the previous data for this session
+        run_one(sync, d)
+
+
+def test_ststcc_skipped_chunk_is_retried_next_run(tmp_path):
+    sync = load_sync(tmp_path)
+    d = tmp_path / "drive"
+    sess = d / "2026-10-07" / "S1"
+    sts_chunk(sess, 1, [(44.8001, 41.70, "7.4")])
+    c2 = sts_chunk(sess, 2, [(44.8003, 41.70, "5.1")])
+    good = (c2 / "S1_c0002.geojson").read_text()
+    (c2 / "S1_c0002.geojson").write_text("{broken")
+    r1 = run_one(sync, d)
+    assert r1["points"] == 1 and r1["stamp"].endswith("|incomplete")
+    (c2 / "S1_c0002.geojson").write_text(good)
+    src = sync.LocalSource(str(d))
+    [(date, s, c)] = list(sync.crawl(src, str(d)))
+    assert sync.process_session(src, date, s, r1)["points"] == 2
+
+
+def test_ststcc_reprocessed_chunk_with_same_files_is_rerendered(tmp_path):
+    sync = load_sync(tmp_path)
+    d = tmp_path / "drive"
+    sess = d / "2026-10-07" / "S1"
+    c1 = sts_chunk(sess, 1, [(44.8001, 41.70, "7.4")])
+    r1 = run_one(sync, d)
+    mk(c1, "S1_c0001.geojson", geojson([(44.8001, 41.70, {"labels": ["5.1"], "image": "S1_c0001_photos/sign_0.jpg"})]))
+    mk(c1, "run_stats.json", {"frames": 100, "footage_s": 10.0, "started_at": 1791379999.0, "wall_s": 5.0})
+    src = sync.LocalSource(str(d))
+    [(date, s, c)] = list(sync.crawl(src, str(d)))
+    r2 = sync.process_session(src, date, s, r1)
+    assert r2["stamp"] != r1["stamp"] and signs_of(sync, r2)[0]["labels"] == ["5.1"]
+
+
+def test_ststcc_final_session_reads_only_final(tmp_path):
+    sync = load_sync(tmp_path)
+    d = tmp_path / "drive"
+    sess = d / "2026-10-07" / "S1"
+    sts_chunk(sess, 1, [(44.8001, 41.70, "7.4")])
+    mk(sess, "final/S1.geojson", geojson([(44.8001, 41.70, {"labels": ["7.4"]})]))
+    mk(sess, "_status.json", {"state": "final_complete", "updated_at": 1791380000.0, "chunks": 1})
+    src = sync.LocalSource(str(d))
+    [(date, s, c)] = list(sync.crawl(src, str(d)))
+    r1 = sync.process_session(src, date, s, None)
+    assert r1["checkpoint"] == "final" and r1["progress"]["final"] is True and r1["progress"]["chunks"] == 1
+    listed = []
+    real_list = src.list
+    src.list = lambda fid: (listed.append(fid), real_list(fid))[1]
+    assert sync.process_session(src, date, s, r1) is r1  # unchanged
+    assert not any(os.sep + "chunks" in str(f) or str(f).endswith("logs") for f in listed), listed
+
+
+def test_ststcc_frames_done_from_manifest_not_resumed_run_stats(tmp_path):
+    sync = load_sync(tmp_path)
+    d = tmp_path / "drive"
+    sess = d / "2026-10-07" / "S1"
+    c1 = sts_chunk(sess, 1, [(44.8001, 41.70, "7.4")], frames=100)
+    mk(c1, "run_stats.json", {"frames": 15, "footage_s": 10.0, "started_at": 1.0})  # resumed: last segment only
+    r = run_one(sync, d)
+    assert (r["progress"]["frames_done"], r["progress"]["frames_expected"]) == (100, 100)

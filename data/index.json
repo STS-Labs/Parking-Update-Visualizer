@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-10-07T14:46:41+00:00",
+ "updated_at": "2026-10-07T14:49:03+00:00",
  "sessions": [
   {
    "id": "2026-09-30_session_2026-09-30_10-53-17",
@@ -74,36 +74,36 @@
    "id": "2026-10-07_20261007T102104Z",
    "date": "2026-10-07",
    "name": "20261007T102104Z",
-   "checkpoint": "2 chunks",
-   "stamp": "2 chunks|54631||001:29:500:1791370569.1432629,003:28:0:1791372334.8784688",
+   "checkpoint": "3 chunks",
+   "stamp": "3 chunks|108627||001:29:500:1791370569.1432629,002:28:0:1791372332.9787457,003:28:0:1791372334.8784688",
    "file": "data/sessions/2026-10-07_20261007T102104Z.geojson",
    "points": 250,
    "unverified_points": 0,
    "route_placed_points": 0,
    "dropped_far": 0,
    "photos_missing": 0,
-   "track_km": 6.77,
-   "recorded_km": 6.77,
+   "track_km": 15.04,
+   "recorded_km": 15.04,
    "bbox": [
     44.7138765,
     41.720004,
     44.7709498,
-    41.7942417
+    41.7942777
    ],
    "progress": {
-    "checkpoint": "2 chunks",
+    "checkpoint": "3 chunks",
     "final": false,
-    "chunks": 2,
-    "frames_done": 54631,
-    "frames_expected": 54631,
-    "svo_frame": 54631,
-    "svo_frames_total": 54631,
-    "video_time_reached": "0:30:21",
-    "video_duration": "0:30:21",
+    "chunks": 3,
+    "frames_done": 108627,
+    "frames_expected": 108627,
+    "svo_frame": 108627,
+    "svo_frames_total": 108627,
+    "video_time_reached": "1:00:21",
+    "video_duration": "1:00:21",
     "raw_detections": 26719,
-    "written_at": "2026-10-07 13:18:00 UTC"
+    "written_at": "2026-10-07 14:45:34 UTC"
    },
-   "synced_at": "2026-10-07T14:46:41+00:00"
+   "synced_at": "2026-10-07T14:49:03+00:00"
   }
  ]
 }

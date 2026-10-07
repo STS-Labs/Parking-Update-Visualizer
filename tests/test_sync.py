@@ -90,3 +90,87 @@ def test_legacy_checkpoint_session(tmp_path):
     assert sign["label_stats"] == {"7.4": {"detections": 1, "mean_conf": 0.9, "max_conf": 0.9}}
     kinds = sorted(f["properties"]["kind"] for f in feats)
     assert kinds == ["sign", "track", "track_pending"]  # cut at svo_frame / svo_frames_total
+
+
+def sts_chunk(sess, n, signs, photos=True, fixes=FIXES, frames=100, footage=10.0):
+    c = sess / "chunks" / f"{n:03d}"
+    p = f"S1_c{n:04d}"
+    mk(c, f"{p}.geojson", geojson([(lon, lat, {"labels": [lab], "image": f"{p}_photos/sign_{i}.jpg",
+                                               "first_ts": 1, "last_ts": 2})
+                                   for i, (lon, lat, lab) in enumerate(signs)]))
+    mk(c, f"{p}.raw.jsonl", "".join('{"ts_ns": 1, "label": "%s", "confidence": 0.8}\n' % s[2] for s in signs))
+    if photos:
+        for i in range(len(signs)):
+            mk(c, f"{p}_photos/sign_{i}.jpg", b"jpg")
+    points_shp(c, "gnss_track_points", fixes)
+    mk(c, "run_stats.json", {"frames": frames, "footage_s": footage, "raw_detections": len(signs),
+                             "started_at": 1791368000.0 + n, "wall_s": 5.0})
+    mk(sess, f"logs/manifest_{n:03d}.json", {"frames": {"grabbed": frames}, "time": {"duration_s": footage}})
+    return c
+
+
+def run_one(sync, d):
+    src = sync.LocalSource(str(d))
+    [(date, s, c)] = sync.dedupe_sessions(list(sync.crawl(src, str(d))))
+    return sync.process_session(src, date, s, None)
+
+
+def signs_of(sync, r):
+    feats = json.load(open(os.path.join(sync.SESSIONS_DIR, r["id"] + ".geojson")))["features"]
+    return [f["properties"] for f in feats if f["properties"]["kind"] == "sign"]
+
+
+def test_ststcc_combines_complete_chunks(tmp_path):
+    sync = load_sync(tmp_path)
+    d = tmp_path / "drive"
+    sess = d / "_sts_test" / "2026-10-07" / "S1"
+    sts_chunk(sess, 1, [(44.8001, 41.70, "7.4")])
+    sts_chunk(sess, 2, [(44.8003, 41.70, "5.1"), (44.8005, 41.70, "7.4")])
+    mk(sess, "chunks/003/run_stats.json", {"frames": 100})            # still uploading: no .geojson
+    mk(sess, "logs/manifest_003.json", {"frames": {"grabbed": 100}, "time": {"duration_s": 10.0}})
+    mk(sess, "chunks/_superseded/x.geojson", geojson([(44.9, 41.9, {"labels": ["x"]})]))
+    mk(sess, "final_cc_r1/S1.geojson", geojson([(44.9, 41.9, {"labels": ["x"]})]))
+    r = run_one(sync, d)
+    assert r["id"] == "2026-10-07_S1" and r["checkpoint"] == "2 chunks" and r["points"] == 3
+    assert r["photos_missing"] == 0 and r["track_km"] > 0
+    pr = r["progress"]
+    assert pr["final"] is False and pr["chunks"] == 2
+    assert (pr["frames_done"], pr["frames_expected"]) == (200, 300)
+    assert (pr["video_time_reached"], pr["video_duration"]) == ("0:00:20", "0:00:30")
+    assert pr["raw_detections"] == 3
+    assert all(p["photo_url"].endswith(".jpg") for p in signs_of(sync, r))
+
+
+def test_ststcc_photos_still_uploading_retry(tmp_path):
+    sync = load_sync(tmp_path)
+    d = tmp_path / "drive"
+    sts_chunk(d / "2026-10-07" / "S1", 1, [(44.8001, 41.70, "7.4")], photos=False)
+    r = run_one(sync, d)
+    assert r["points"] == 1 and r["photos_missing"] == 1 and r["stamp"].endswith("|incomplete")
+
+
+def test_ststcc_final_only_when_complete(tmp_path):
+    sync = load_sync(tmp_path)
+    d = tmp_path / "drive"
+    sess = d / "2026-10-07" / "S1"
+    sts_chunk(sess, 1, [(44.8001, 41.70, "7.4")])
+    sts_chunk(sess, 2, [(44.8003, 41.70, "5.1")])
+    mk(sess, "final/S1.geojson", geojson([(44.8002, 41.70, {"labels": ["7.4"]})]))
+    points_shp(sess / "final", "gnss_track_points", FIXES)
+    for status, want in (({"state": "final_provisional"}, "2 chunks"), ("{not json", "2 chunks"),
+                         ({"state": "final_complete"}, "final")):
+        mk(sess, "_status.json", status)
+        r = run_one(sync, d)
+        assert r["checkpoint"] == want
+    assert r["points"] == 1 and r["progress"]["final"] is True
+
+
+def test_ststcc_corrupt_chunk_left_out(tmp_path):
+    sync = load_sync(tmp_path)
+    d = tmp_path / "drive"
+    sess = d / "2026-10-07" / "S1"
+    sts_chunk(sess, 1, [(44.8001, 41.70, "7.4")])
+    c2 = sts_chunk(sess, 2, [(44.8003, 41.70, "5.1")])
+    (c2 / "S1_c0002.geojson").write_text("{broken")
+    r = run_one(sync, d)
+    assert r["points"] == 1

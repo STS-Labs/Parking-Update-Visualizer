@@ -28,6 +28,8 @@ DATA = os.path.join(REPO, "data")
 SESSIONS_DIR = os.path.join(DATA, "sessions")
 
 CHECKPOINT_RE = re.compile(r"^checkpoint_(\d+)$")
+STS_CHUNK_RE = re.compile(r"^\d+$")             # sts-cc: <session>/chunks/<NNN>/
+MANIFEST_RE = re.compile(r"^manifest_\d+\.json$")  # sts-cc: <session>/logs/manifest_<NNN>.json (sealed chunks)
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 FAR_FROM_TRACK_M = 50.0  # signs at least this far from the GNSS track are georeferencing errors
@@ -535,9 +537,78 @@ def render_session(src, sid, date, name, sel, previous):
     }
 
 
-def select_ststcc(src, sid, children):  # implemented in Task 4
-    log(f"  {sid}: sts-cc layout not supported yet")
-    return None
+def clock(seconds):
+    s = int(round(seconds or 0))
+    return f"{s // 3600}:{s % 3600 // 60:02d}:{s % 60:02d}"
+
+
+def read_json_entry(src, entry):
+    if not entry:
+        return {}
+    try:
+        data = json.loads(src.read(entry))
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def select_ststcc(src, sid, children):
+    """sts-cc session: final/ once _status.json says final_complete, else every chunk whose .geojson
+    is uploaded (chunks/<NNN>/; others are still uploading or were superseded)."""
+    folders = {e["name"].lower(): e for e in children if e["folder"]}
+    chunks = sorted((e for e in src.list(folders["chunks"]["id"]) if e["folder"] and STS_CHUNK_RE.match(e["name"])),
+                    key=lambda e: int(e["name"]))
+    done, frames_done, footage, raw, written = [], 0, 0.0, 0, None
+    for c in chunks:
+        entries = src.list(c["id"])
+        if not find(entries, ".geojson"):
+            log(f"  {sid}: chunk {c['name']} has no .geojson yet, left out")
+            continue
+        rs = read_json_entry(src, find(entries, "run_stats.json"))
+        frames_done += int(rs.get("frames") or 0)
+        footage += float(rs.get("footage_s") or 0)
+        raw += int(rs.get("raw_detections") or 0)
+        if rs.get("started_at"):
+            written = max(written or 0.0, float(rs["started_at"]) + float(rs.get("wall_s") or 0))
+        done.append((c["name"], entries))
+
+    frames_expected, duration = frames_done, footage  # sealed chunks so far, from the box manifests
+    if "logs" in folders:
+        fe, du = 0, 0.0
+        for e in src.list(folders["logs"]["id"]):
+            if not e["folder"] and MANIFEST_RE.match(e["name"]):
+                m = read_json_entry(src, e)
+                fe += int((m.get("frames") or {}).get("grabbed") or 0)
+                du += float((m.get("time") or {}).get("duration_s") or 0)
+        if fe >= frames_done:
+            frames_expected, duration = fe, du
+
+    final, parts = False, [(n, entries) for n, entries in done]
+    status = read_json_entry(src, find(children, "_status.json"))
+    if status.get("state") == "final_complete" and "final" in folders:
+        listing = src.list(folders["final"]["id"])
+        if find(listing, ".geojson"):
+            final, parts = True, [("final", listing)]
+    if not parts:
+        log(f"  {sid}: no chunk uploaded yet")
+        return None
+
+    label = "final" if final else f"{len(done)} chunk{'s' if len(done) != 1 else ''}"
+    reached = frames_expected if final else frames_done
+    progress = {
+        "checkpoint": label, "final": final, "chunks": len(done),
+        "frames_done": reached, "frames_expected": frames_expected,
+        "svo_frame": reached, "svo_frames_total": reached,  # the uploaded track is all processed
+        "video_time_reached": clock(duration if final else footage), "video_duration": clock(duration),
+        "raw_detections": raw,
+        "written_at": (datetime.fromtimestamp(written, timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                       if written else None),
+    }
+    out = [{"name": n, "entries": entries, "photo_ids": {}, "shared": {}, "photos": folder_photos(src, entries)}
+           for n, entries in parts]
+    stamp = "|".join([label, str(frames_expected), status.get("state") or "",
+                      ",".join(f"{p['name']}:{len(p['entries'])}:{len(p['photos'])}" for p in out)])
+    return {"label": label, "progress": progress, "stamp": stamp, "tolerant": True, "parts": out}
 
 
 def is_session_listing(entries):

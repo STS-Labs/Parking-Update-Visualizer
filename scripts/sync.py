@@ -113,14 +113,6 @@ def find(entries, suffix, exclude=()):
     return None
 
 
-def pick_latest_checkpoint(entries):
-    final = [e for e in entries if e["folder"] and e["name"].lower() == "final"]
-    if final:
-        return final[0]
-    cps = [(int(m.group(1)), e) for e in entries if e["folder"] and (m := CHECKPOINT_RE.match(e["name"]))]
-    return max(cps, key=lambda t: t[0])[1] if cps else None
-
-
 def checkpoint_candidates(entries):
     """final first, then checkpoint folders newest first. The uploader sends a
     checkpoint's progress.json last, so the first one that has it is complete."""
@@ -507,21 +499,44 @@ def process_session(src, date, session_entry, previous):
     }
 
 
+def is_session_listing(entries):
+    """A session folder holds final/, checkpoint_NNN/ (legacy) or chunks/ (sts-cc)."""
+    return any(e["folder"] and (e["name"].lower() in ("final", "chunks") or CHECKPOINT_RE.match(e["name"]))
+               for e in entries)
+
+
 def crawl(src, root_id):
-    """Yield (date, session_entry). Accepts root = top folder, a date folder, or a session folder."""
+    """Yield (date, session_entry, container). Accepts root = top folder, a date folder, or a session folder.
+    container is "" for sessions found directly under the root, else the non-date folder they sit in
+    (one level deep, e.g. _sts_test/<date>/<session>)."""
     top = src.list(root_id)
-    if pick_latest_checkpoint(top):  # root is itself a session
-        yield "", {"id": root_id, "name": os.path.basename(str(root_id).rstrip("/")) or "session"}
+    if is_session_listing(top):  # root is itself a session
+        yield "", {"id": root_id, "name": os.path.basename(str(root_id).rstrip("/")) or "session"}, ""
         return
-    for d in top:
+    yield from _crawl_folders(src, top, "")
+
+
+def _crawl_folders(src, entries, container):
+    for d in entries:
         if not d["folder"]:
             continue
         if DATE_RE.match(d["name"]):
             for s in src.list(d["id"]):
                 if s["folder"]:
-                    yield d["name"], s
-        else:  # session directly under root
-            yield "", d
+                    yield d["name"], s, container
+            continue
+        children = src.list(d["id"])
+        if is_session_listing(children):  # session directly under root (or container)
+            yield "", d, container
+        elif not container:  # a container such as _sts_test: one level only
+            yield from _crawl_folders(src, children, d["name"])
+
+
+def dedupe_sessions(found):
+    """Same session id in the root and in a container: keep the root copy."""
+    ids = lambda date, s: slug(f"{date}_{s['name']}") if date else slug(s["name"])  # noqa: E731
+    root_ids = {ids(date, s) for date, s, c in found if not c}
+    return [(date, s, c) for date, s, c in found if not c or ids(date, s) not in root_ids]
 
 
 def main():
@@ -546,8 +561,9 @@ def main():
     except Exception as e:  # noqa: BLE001
         log(f"ERROR listing Drive root: {e}; keeping existing data")
         return 1
+    found = dedupe_sessions(found)
     log(f"found {len(found)} session folder(s)")
-    for date, s in found:
+    for date, s, container in found:
         sid = slug(f"{date}_{s['name']}") if date else slug(s["name"])
         try:
             r = process_session(src, date, s, old.get(sid))

@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-10-13T12:04:10+00:00",
+ "updated_at": "2026-10-13T12:19:38+00:00",
  "sessions": [
   {
    "id": "2026-09-30_session_2026-09-30_10-53-17",
@@ -180,19 +180,19 @@
     "chunks": 12,
     "written_at": "2026-10-13 07:59:58 UTC"
    },
-   "synced_at": "2026-10-13T12:04:03+00:00"
+   "synced_at": "2026-10-13T12:19:07+00:00"
   },
   {
    "id": "2026-10-13_20261013T071400Z",
    "date": "2026-10-13",
    "name": "20261013T071400Z",
-   "checkpoint": "2 chunks",
-   "stamp": "2 chunks|91477||001:29:722:1791877792.2129843,002:29:52:1791884074.519853",
+   "checkpoint": "final",
+   "stamp": "final|1791893631.4729283|m20261013T114854Z-merge|28:774",
    "file": "data/sessions/2026-10-13_20261013T071400Z.geojson",
-   "points": 387,
-   "unverified_points": 27,
+   "points": 373,
+   "unverified_points": 0,
    "route_placed_points": 0,
-   "dropped_far": 0,
+   "dropped_far": 14,
    "photos_missing": 0,
    "track_km": 10.27,
    "recorded_km": 10.27,
@@ -203,19 +203,47 @@
     41.7355286
    ],
    "progress": {
-    "checkpoint": "2 chunks",
-    "final": false,
+    "checkpoint": "final",
+    "final": true,
     "chunks": 2,
-    "frames_done": 91477,
-    "frames_expected": 91477,
-    "svo_frame": 91477,
-    "svo_frames_total": 91477,
-    "video_time_reached": "0:50:49",
-    "video_duration": "0:50:49",
-    "raw_detections": 17139,
-    "written_at": "2026-10-13 10:14:08 UTC"
+    "written_at": "2026-10-13 12:13:51 UTC"
    },
-   "synced_at": "2026-10-13T10:49:22+00:00"
+   "synced_at": "2026-10-13T12:19:19+00:00"
+  },
+  {
+   "id": "2026-10-13_20261013T081444Z",
+   "date": "2026-10-13",
+   "name": "20261013T081444Z",
+   "checkpoint": "1 chunk",
+   "stamp": "1 chunk|324007||001:29:140:1791886455.2999275|incomplete",
+   "file": "data/sessions/2026-10-13_20261013T081444Z.geojson",
+   "points": 206,
+   "unverified_points": 0,
+   "route_placed_points": 0,
+   "dropped_far": 0,
+   "photos_missing": 136,
+   "track_km": 6.47,
+   "recorded_km": 6.47,
+   "bbox": [
+    44.7725435,
+    41.7044184,
+    44.7860698,
+    41.739777
+   ],
+   "progress": {
+    "checkpoint": "1 chunk",
+    "final": false,
+    "chunks": 1,
+    "frames_done": 54000,
+    "frames_expected": 324007,
+    "svo_frame": 54000,
+    "svo_frames_total": 54000,
+    "video_time_reached": "0:30:00",
+    "video_duration": "3:00:00",
+    "raw_detections": 12476,
+    "written_at": "2026-10-13 11:48:50 UTC"
+   },
+   "synced_at": "2026-10-13T12:19:38+00:00"
   }
  ]
 }

@@ -25,6 +25,7 @@
   let lastIndexStamp = null;
   let fittedOnce = false;
   let minConf = 0;
+  let maxConf = 1;
   // sign-type filter: "all" | "parking" | "custom" (custom uses selectedCodes)
   let typeMode = "all";
   const selectedCodes = new Set();
@@ -105,7 +106,8 @@
     for (const s of sessions.values()) {
       if (!s.visible) continue;
       for (const m of s.markers) {
-        if ((m.options.conf ?? 1) < minConf) continue;
+        const c = m.options.conf;
+        if (c != null && (c < minConf || c > maxConf)) continue;
         if (!m.options.labels.some(codeVisible)) continue;
         visible.push(m);
       }
@@ -273,11 +275,18 @@
     renderCodes();
   }
 
-  $("minconf").addEventListener("input", (e) => {
-    minConf = parseFloat(e.target.value);
-    $("minconf-val").textContent = minConf.toFixed(2);
+  function syncConf(changed) {
+    let lo = parseFloat($("minconf").value);
+    let hi = parseFloat($("maxconf").value);
+    if (lo > hi) { if (changed === "minconf") hi = lo; else lo = hi; }
+    minConf = lo; maxConf = hi;
+    $("minconf").value = lo; $("maxconf").value = hi;
+    $("minconf-val").textContent = lo.toFixed(2);
+    $("maxconf-val").textContent = hi.toFixed(2);
     applyFilter();
-  });
+  }
+  for (const id of ["minconf", "maxconf"])
+    $(id).addEventListener("input", () => syncConf(id));
   for (const b of document.querySelectorAll("#typemode button"))
     b.addEventListener("click", () => setMode(b.dataset.mode));
   try {
